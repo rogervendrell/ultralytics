@@ -205,6 +205,37 @@ class YOLOETrainerFromScratch(YOLOETrainer, WorldTrainerFromScratch):
         torch.save(txt_map, cache_path)
         return txt_map
 
+    def generate_visual_embeddings(self, batch):
+        """
+        Generate visual embeddings for a list of image tensors.
+
+        Args:
+            list of batches
+        Returns:
+            vpes
+        """
+        assert self.model is not None
+        import numpy as np
+        if not hasattr(self, 'yoloe_model'):
+            from ultralytics import YOLOE
+            self.yoloe_model = YOLOE(self.model_name)
+
+        h, w = batch['ori_shape']
+        b = batch['bboxes'].cpu().numpy() # YOLO normalized boxes
+
+        bxy = b[:, :2] * [w, h]           # center x,y in pixels
+        bwh = b[:, 2:] * [w, h]           # width,height in pixels
+        pixel_boxes = np.concatenate([bxy - bwh/2, bxy + bwh/2], axis=1).astype(int)
+
+        visual_prompts = {
+            'bboxes': pixel_boxes.tolist(),
+            'cls': list(range(batch['cls'].shape[0]))
+        }
+
+        return self.yoloe_model.predict([batch['im_file']], 
+                      visual_prompts=visual_prompts, 
+                      return_vpes=True,
+                      refer_image=batch['im_file'])
 
 class YOLOEPEFreeTrainer(YOLOEPETrainer, YOLOETrainerFromScratch):
     """Train prompt-free YOLOE model.

@@ -98,6 +98,7 @@ class WorldTrainerFromScratch(WorldTrainer):
             for im_path in img_path
         ]
         self.set_text_embeddings(datasets, batch)  # cache text embeddings to accelerate training
+        self.cache_visual_embeddings(datasets, batch) # cache (and index) visual embeddings to allow for vpe retrieval
         return YOLOConcatDataset(datasets) if len(datasets) > 1 else datasets[0]
 
     def get_dataset(self):

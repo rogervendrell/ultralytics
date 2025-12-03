@@ -1118,6 +1118,16 @@ class YOLOEModel(DetectionModel):
         if not all_pe:
             all_pe.append(getattr(self, "pe", torch.zeros(1, 80, 512)))
         return torch.cat(all_pe, dim=1)
+        if not hasattr(self, "device"):
+            self.device = next(self.model.parameters()).device
+        cache_path = self.model.visual_embeddings_cache_path
+        data = torch.load(cache_path, mmap=True, map_location=torch.device("cpu"))
+        embedding_indices = [
+            random.sample(list(data["class_to_embedding_map"][cls_name]), k=1)[0]
+            for cls_name in cls_names
+        ]
+        indices = torch.tensor(embedding_indices, dtype=torch.long)
+        return data["visual_embeddings"][indices, :].to(torch.device("cuda:0"))
 
     def predict(
         self, x, profile=False, visualize=False, tpe=None, augment=False, embed=None, vpe=None, return_vpe=False
@@ -1141,6 +1151,7 @@ class YOLOEModel(DetectionModel):
         b = x.shape[0]
         embed = frozenset(embed) if embed is not None else {-1}
         max_idx = max(embed)
+        use_cached_embeddings = hasattr(self.model, "visual_embeddings_cache_path")
         for m in self.model:  # except the head part
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
