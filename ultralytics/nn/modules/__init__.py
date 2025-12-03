@@ -101,6 +101,9 @@ from .transformer import (
     TransformerEncoderLayer,
     TransformerLayer,
 )
+from .fusion import (
+    Fusion,
+)
 
 __all__ = (
     "AIFI",
@@ -179,4 +182,5 @@ __all__ = (
     "YOLOEDetect",
     "YOLOESegment",
     "v10Detect",
+    "Fusion",
 )
