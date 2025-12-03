@@ -1198,7 +1198,6 @@ class YOLOEModel(DetectionModel):
                     # cls_pe.requires_grad_(True)
                 if cls_pe.shape[0] != b or m.export:
                     cls_pe = cls_pe.expand(b, -1, -1)
-                breakpoint()
                 x = m(x, cls_pe)
             else:
                 x = m(x)  # run
