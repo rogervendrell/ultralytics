@@ -125,7 +125,7 @@ class YOLOEVPDetectPredictor(DetectionPredictor):
         # Generate visuals using the visual prompt loader
         return LoadVisualPrompt().get_visuals(category, dst_shape, bboxes, masks)
 
-    def inference(self, im, *args, **kwargs):
+    def inference_old(self, im, *args, **kwargs):
         """Run inference with visual prompts.
 
         Args:
@@ -136,6 +136,31 @@ class YOLOEVPDetectPredictor(DetectionPredictor):
         Returns:
             (torch.Tensor): Model prediction results.
         """
+        return super().inference(im, vpe=self.prompts, *args, **kwargs)
+
+    def inference(self, im, *args, **kwargs):
+        fuse_map = kwargs.pop("fuse_map", None)  # dict: visual_id -> text_class_index
+        alpha = kwargs.pop("fuse_alpha", 0.5)    # simple blend; replace with your attention fusion
+
+        tpe = getattr(self.model, "pe", None)    # [1, C, D] after model.set_classes(...)
+        if tpe is not None and getattr(self, "prompts", None) is not None and fuse_map:
+            vpe_raw = self.model(im, vpe=self.prompts, return_vpe=True)  # [B, N, D]
+            B, N, D = vpe_raw.shape
+            C = tpe.shape[1]
+
+            vpe_aligned = vpe_raw.new_zeros(B, C, D)
+            counts = vpe_raw.new_zeros(C)  # per-class counts
+
+            for k, j in fuse_map.items():           # map visual category k -> text class j
+                vpe_aligned[:, j] += vpe_raw[:, k]
+                counts[j] += 1
+
+            counts = counts.clamp(min=1).view(1, C, 1)
+            vpe_aligned = vpe_aligned / counts
+
+            fused = alpha * tpe.expand(B, -1, -1) + (1 - alpha) * vpe_aligned  # replace with attention fusion
+            return super().inference(im, tpe=fused, *args, **kwargs)
+
         return super().inference(im, vpe=self.prompts, *args, **kwargs)
 
     def get_vpe(self, source):
