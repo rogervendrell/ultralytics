@@ -1113,9 +1113,8 @@ class YOLOEModel(DetectionModel):
         if tpe is None and vpe is None:
             return getattr(self, "pe", torch.zeros(1, 80, 512))
         if not hasattr(self, "fusion"):
-            B, N, E = tpe.shape
             device = next(self.model.parameters()).device
-            self.fusion = Fusion(N=N, embed_dim=E, num_heads=1).to(device)
+            self.fusion = Fusion(embed_dim=tpe.shape[1], num_heads=1).to(device)
         return self.fusion(tpe, vpe)
 
     def get_visual_embeddings_from_cache(self, cls_names: list[str]) -> torch.Tensor:
@@ -1159,11 +1158,14 @@ class YOLOEModel(DetectionModel):
             if profile:
                 self._profile_one_layer(m, x, dt)
             if isinstance(m, YOLOEDetect):
-                vpe_padded = None
-                # Prepare vars
+                tpe_flat = None
+                vpe_flat = None
+
+                # Flatten tpe
                 if tpe is not None:
                     batch_index = batch["batch_idx"].long()
                     class_index = batch["cls"].squeeze(-1)
+                    tpe_flat = tpe[batch_index, class_index]
 
                 # Get vpe
                 if use_cached_embeddings and batch and batch.get("texts", False): # batch es None quan es fa validacio
@@ -1172,30 +1174,21 @@ class YOLOEModel(DetectionModel):
                 else:
                     vpe = m.get_vpe(x, vpe) if vpe is not None else None
 
-                # Return vpe or populate padded vpe
+                # Return or flatten vpe
                 if vpe is not None:
                     if return_vpe:
                         assert not self.training
                         return vpe
-                    else:
-                        B, N, E = tpe.shape
-                        vpe_padded = torch.zeros(B, N, E, dtype=tpe.dtype, device=tpe.device)
-                        batch_index = batch_index.to(vpe.device)
-                        class_index = class_index.to(vpe.device)
-                        vpe_padded[batch_index, class_index] = vpe
 
-                # Fuse and put fused embed. back into the batch
-                fused_cls_pe = self.get_cls_pe(tpe, vpe_padded).to(device=x[0].device, dtype=x[0].dtype) # (N, embed_dim)
+                # Fuse
+                fused_cls_pe = self.get_cls_pe(tpe_flat, vpe_flat).to(device=x[0].device, dtype=x[0].dtype) # (N, embed_dim)
                 if fused_cls_pe.ndim == 3:
                     cls_pe = fused_cls_pe
                 else:
-                    cls_pe = tpe.clone() # .to(x[0].dtype)
-                    cls_pe[batch_index, class_index] = fused_cls_pe.to(cls_pe.dtype) # (batch, N, embed_dim)
-                    cls_pe.requires_grad_(True)
-                    # cls_pe = tpe.clone().to(x[0].dtype).detach()
-                    # breakpoint()
-                    # cls_pe = cls_pe.scatter_(0, batch_index.unsqueeze(-1).expand_as(fused_cls_pe), fused_cls_pe)
-                    # cls_pe.requires_grad_(True)
+                    breakpoint()
+                    counts = torch.bincount(batch_index)
+                    M = torch.max(counts) - counts
+
                 if cls_pe.shape[0] != b or m.export:
                     cls_pe = cls_pe.expand(b, -1, -1)
                 x = m(x, cls_pe)
