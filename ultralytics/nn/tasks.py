@@ -4,6 +4,7 @@ import contextlib
 import pickle
 import re
 import random
+random.seed(2)
 import types
 from copy import deepcopy
 from pathlib import Path
@@ -1169,7 +1170,7 @@ class YOLOEModel(DetectionModel):
 
                 # Get vpe
                 if use_cached_embeddings and batch and batch.get("texts", False):
-                    texts_flat = [batch["texts"][b][c] for b, c in zip(batch_index.tolist(), class_index.tolist())] # shape = [N]
+                    texts_flat = [batch["texts"][b_idx][c_idx] for b_idx, c_idx in zip(batch_index.tolist(), class_index.tolist())] # shape = [N]
                     vpe = self.get_visual_embeddings_from_cache(texts_flat) # shape = [N, embed_dim]
                 else:
                     vpe = m.get_vpe(x, vpe) if vpe is not None else None
@@ -1185,8 +1186,20 @@ class YOLOEModel(DetectionModel):
                 if fused.ndim == 3:
                     cls_pe = fused
                 else:
+                    exclude = defaultdict(set)
+                    for b_idx, c_idx in zip(batch_index, class_index):
+                        exclude[b_idx].add(c_idx)
+                    B, C, E = tpe.shape
                     cls_pe = tpe.clone()
-                    cls_pe[batch_index, class_index] = fused.to(cls_pe.dtype) # shape [batch, 80, embed_dim]
+                    counts = torch.bincount(batch_index)
+                    N = int(counts.max())
+                    addition = []
+                    for b_idx in range(B):
+                        allowed = list(set(range(N)) - exclude[b_idx])
+                        chosen = random.sample(allowed, k=N-counts[b_idx])
+                        addition.append(torch.cat((tpe[b_idx, chosen], fused[:counts[b_idx],:]), dim=0).unsqueeze(0))
+                    addition = torch.cat(addition, dim=0)
+                    cls_pe = torch.cat((cls_pe, addition), dim=1)
                 if cls_pe.shape[0] != b or m.export:
                     cls_pe = cls_pe.expand(b, -1, -1)
                 x = m(x, cls_pe)
