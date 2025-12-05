@@ -7,6 +7,7 @@ import random
 import types
 from copy import deepcopy
 from pathlib import Path
+from collections import defaultdict
 
 import torch
 import torch.nn as nn
@@ -1159,36 +1160,33 @@ class YOLOEModel(DetectionModel):
                 self._profile_one_layer(m, x, dt)
             if isinstance(m, YOLOEDetect):
                 tpe_flat = None
-                vpe_flat = None
 
-                # Flatten tpe
-                if tpe is not None:
+                # Select "positive" textual embeddings
+                if tpe is not None: # shape = [batch, 80, embed_dim]
                     batch_index = batch["batch_idx"].long()
                     class_index = batch["cls"].squeeze(-1)
-                    tpe_flat = tpe[batch_index, class_index]
+                    tpe_flat = tpe[batch_index, class_index] # shape = [N, embed_dim]
 
                 # Get vpe
-                if use_cached_embeddings and batch and batch.get("texts", False): # batch es None quan es fa validacio
-                    texts_flat = [batch["texts"][b][c] for b, c in zip(batch_index.tolist(), class_index.tolist())]
-                    vpe = self.get_visual_embeddings_from_cache(texts_flat)
+                if use_cached_embeddings and batch and batch.get("texts", False):
+                    texts_flat = [batch["texts"][b][c] for b, c in zip(batch_index.tolist(), class_index.tolist())] # shape = [N]
+                    vpe = self.get_visual_embeddings_from_cache(texts_flat) # shape = [N, embed_dim]
                 else:
                     vpe = m.get_vpe(x, vpe) if vpe is not None else None
 
                 # Return or flatten vpe
-                if vpe is not None:
-                    if return_vpe:
-                        assert not self.training
-                        return vpe
+                if return_vpe:
+                    assert vpe is not None
+                    assert not self.training
+                    return vpe                    
 
                 # Fuse
-                fused_cls_pe = self.get_cls_pe(tpe_flat, vpe_flat).to(device=x[0].device, dtype=x[0].dtype) # (N, embed_dim)
-                if fused_cls_pe.ndim == 3:
-                    cls_pe = fused_cls_pe
+                fused = self.get_cls_pe(tpe_flat, vpe).to(device=x[0].device, dtype=x[0].dtype) # shape [N, embed_dim]
+                if fused.ndim == 3:
+                    cls_pe = fused
                 else:
-                    breakpoint()
-                    counts = torch.bincount(batch_index)
-                    M = torch.max(counts) - counts
-
+                    cls_pe = tpe.clone()
+                    cls_pe[batch_index, class_index] = fused.to(cls_pe.dtype) # shape [batch, 80, embed_dim]
                 if cls_pe.shape[0] != b or m.export:
                     cls_pe = cls_pe.expand(b, -1, -1)
                 x = m(x, cls_pe)
