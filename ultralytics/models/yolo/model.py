@@ -413,7 +413,7 @@ class YOLOE(Model):
             self.model.model[-1].nc = num_cls
             self.model.names = [f"object{i}" for i in range(num_cls)]
             self.predictor.set_prompts(visual_prompts.copy())
-            self.predictor.setup_model(model=self.model)
+            self.predictor.setup_model(model=self.model, verbose=kwargs.get("verbose", True)) # verbose True as default
 
             if kwargs.get("return_maps", False):
                 return self.predictor.get_feature_maps(refer_image)

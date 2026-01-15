@@ -235,7 +235,8 @@ class YOLOETrainerFromScratch(YOLOETrainer, WorldTrainerFromScratch):
         return self.yoloe_model.predict([batch['im_file']], 
                       visual_prompts=visual_prompts, 
                       return_vpes=True,
-                      refer_image=batch['im_file'])
+                      refer_image=batch['im_file'],
+                      verbose=False)
 
 class YOLOEPEFreeTrainer(YOLOEPETrainer, YOLOETrainerFromScratch):
     """Train prompt-free YOLOE model.
