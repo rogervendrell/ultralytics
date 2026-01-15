@@ -988,6 +988,7 @@ class YOLOEModel(DetectionModel):
             verbose (bool): Whether to display model information.
         """
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+        self.fusion = Fusion(embed_dim=512, num_heads=1)
 
     @smart_inference_mode()
     def get_text_pe(self, text, batch=80, cache_clip_model=False, without_reprta=False):
@@ -1114,9 +1115,6 @@ class YOLOEModel(DetectionModel):
         """
         if tpe is None and vpe is None:
             return getattr(self, "pe", torch.zeros(1, 80, 512))
-        if not hasattr(self, "fusion"):
-            device = next(self.model.parameters()).device
-            self.fusion = Fusion(embed_dim=tpe.shape[1], num_heads=1).to(device)
         return self.fusion(tpe, vpe)
 
     def get_visual_embeddings_from_cache(self, cls_names: list[str]) -> torch.Tensor:
