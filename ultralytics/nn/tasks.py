@@ -1118,6 +1118,12 @@ class YOLOEModel(DetectionModel):
         return self.fusion(tpe, vpe)
 
     def get_visual_embeddings_from_cache(self, cls_names: list[str]) -> torch.Tensor:
+        """
+        Gets the visual embedding of one instance of each class in cls_names.
+            as in ["car", "car", "truck"]
+            returns [emb1(car), emb2(car), emb3(truck)]
+            where emb1 and emb2 are visual embeddings of randomly selected car instances
+        """
         if not hasattr(self, "device"):
             self.device = next(self.model.parameters()).device
         cache_path = self.model.visual_embeddings_cache_path
@@ -1163,7 +1169,7 @@ class YOLOEModel(DetectionModel):
                 # Select "positive" textual embeddings
                 if tpe is not None: # shape = [batch, 80, embed_dim]
                     batch_index = batch["batch_idx"].long()
-                    class_index = batch["cls"].squeeze(-1)
+                    class_index = batch["cls"].squeeze(-1).long()
                     tpe_flat = tpe[batch_index, class_index] # shape = [N, embed_dim]
 
                 # Get vpe
@@ -1184,18 +1190,23 @@ class YOLOEModel(DetectionModel):
                 if fused.ndim == 3:
                     cls_pe = fused
                 else:
-                    exclude = defaultdict(set)
+                    exclude = defaultdict(set) # indexos de tpe (o cls_pe)
                     for b_idx, c_idx in zip(batch_index, class_index):
+                        b_idx, c_idx = int(b_idx), int(c_idx)
                         exclude[b_idx].add(c_idx)
-                    B, C, E = tpe.shape
                     cls_pe = tpe.clone()
+                    B, C, E = cls_pe.shape
                     counts = torch.bincount(batch_index)
                     N = int(counts.max())
                     addition = []
                     for b_idx in range(B):
-                        allowed = list(set(range(N)) - exclude[b_idx])
-                        chosen = random.sample(allowed, k=N-counts[b_idx])
-                        addition.append(torch.cat((tpe[b_idx, chosen], fused[:counts[b_idx],:]), dim=0).unsqueeze(0))
+                        try:
+                            allowed = list(set(range(C)) - exclude[b_idx])
+                            n = int(counts[b_idx])
+                            chosen = random.choices(allowed, k=N-n)
+                            addition.append(torch.cat((tpe[b_idx, chosen], fused[:n,:]), dim=0).unsqueeze(0))
+                        except:
+                            continue
                     addition = torch.cat(addition, dim=0)
                     cls_pe = torch.cat((cls_pe, addition), dim=1)
                 if cls_pe.shape[0] != b or m.export:
